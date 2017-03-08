@@ -1,6 +1,6 @@
 var Game = function () {
 
-var MAX_MESSAGE_LENGTH = "75";
+var MAX_MESSAGE_LENGTH = 75;
 
 var displayOptions = {
     width: 80,
@@ -107,8 +107,13 @@ var Attack = function(props) {
     this.msgAttempt = props.msgAttempt;
 };
 
-Attack.prototype.attack = function(target) {
-    var damage = this.power - target.fighter.defense;
+Attack.prototype.hits = function(target) {
+    var chance = 1 / (1 + Math.pow(2, this.accuracy - target.fighter.defense));
+    return ROT.RNG.getUniform() < chance;
+};
+
+Attack.prototype.doAttack = function(target) {
+    var damage = this.power - Math.floor(ROT.RNG.getUniform()*target.fighter.defense);
     this.fighter.entity.game.scheduler.setDuration(this.speed);
     var sayTarget = target.object;
 
@@ -119,7 +124,7 @@ Attack.prototype.attack = function(target) {
         sayTarget = undefined;
     }
 
-    if (damage > 0) {
+    if (this.hits(target) && damage > 0) {
         this.fighter.entity.game.say(this.msgHits,
                                      this.fighter.entity.object,
                                      sayTarget);
@@ -133,9 +138,13 @@ Attack.prototype.attack = function(target) {
     }
 };
 
+Attack.prototype.attack = function(target) {
+    this.doAttack(target);
+};
+
 var Fighter = function(hp, attacks, defense) {
     this.hp = hp;
-    this.max_hp = hp;
+    this.maxHp = hp;
     this.attacks = attacks;
     for (var a in attacks) {
         attacks[a].fighter = this;
@@ -156,8 +165,8 @@ Fighter.prototype.attack = function (type, target) {
 };
 
 Fighter.prototype.wallJump = function(dx, dy) {
-    var newX = this.entity.object.x - 2*dx, newY = this.entity.object.y - 2*dy;
-    if (this.entity.object.move(newX, newY)) {
+    var newX = this.entity.location.x - 2*dx, newY = this.entity.location.y - 2*dy;
+    if (this.entity.location.move(newX, newY)) {
         this.entity.game.say(msgWallJump, this.entity.object);
         this.entity.game.scheduler.setDuration(this.speed);
         return true;
@@ -179,8 +188,9 @@ var corpse = function(o) {
 Fighter.prototype.die = function() {
     var game = this.entity.game;
     game.say(msgDie, this.entity.object);
-    var x = this.entity.object.x, y = this.entity.object.y;
-    var c = new Entity({object: new Item(x, y, corpse(this.entity.object))});
+    var x = this.entity.location.x, y = this.entity.location.y;
+    var c = new Entity({object: new Item(corpse(this.entity.object))
+                       ,location: new Location(x,y)});
     game.removeEntity(this.entity);
     game.addEntity(c);
 };
@@ -257,9 +267,9 @@ Map.prototype.blocked = function(x, y) {
     var t = this.get(x,y);
     if (!t || t.blocked) { return true; }
 
-    for (o of this.game.components.object) {
-        if (o.x == x && o.y == y) {
-            return o.blocks;
+    for (o of this.game.components.location) {
+        if (o.x == x && o.y == y && o.entity.object) {
+            return o.entity.object.blocks;
         }
     }
 };
@@ -315,26 +325,23 @@ var Game = function() {
     this.map = new Map(this);
     this.map.generate();
     this.player =
-        new Entity({ object: new Item(30, 12, playerProps)
+        new Entity({ object: new Item(playerProps)
+                   , location: new Location(30, 12)
                    , ai: playerController
                    , fighter: playerFighter });
-    this.map.computeDistance(this.player.object.x, this.player.object.y);
+    this.map.computeDistance(this.player.location.x, this.player.location.y);
     var enemy =
-        new Entity({ object: new Item(1, 1, ninja)
+        new Entity({ object: new Item(ninja)
+                   , location: new Location(1,1)
                    , ai: new BasicAI(10)
                    , fighter: new Fighter(5, { base: new Attack(ninjaBaseAttack) }, 1) });
     this.addEntity(this.player);
     this.addEntity(enemy);
-    enemy = new Entity({ object: new Item(55, 2, ninja)
+    enemy = new Entity({ object: new Item(ninja)
+                       , location: new Location(55,2)
                        , ai: new BasicAI(10)
                        , fighter: new Fighter(5, { base: new Attack(ninjaBaseAttack) }, 1) });
     this.addEntity(enemy);
-    this.addEntity(new Entity({ object: new Item(17,24, {symbol: "x", name: "banana"}) }));
-    this.addEntity(new Entity({ object: new Item(17,24, {symbol: "x", name: "lute"}) }));
-    this.addEntity(new Entity({ object: new Item(17,24, {symbol: "x", name: "very long name"}) }));
-    this.addEntity(new Entity({ object: new Item(17,24, {symbol: "x", name: "figurine"}) }));
-    this.addEntity(new Entity({ object: new Item(17,24, {symbol: "x", name: "plush wolverine"}) }));
-    this.addEntity(new Entity({ object: new Item(17,24, {symbol: "x", name: "novelty tiki mug"}) }));
     this.messages = ["Welcome to the dojo."];
     this.message = "";
     this.draw();
@@ -367,6 +374,11 @@ Game.prototype.removeEntity = function(e) {
     }
 };
 
+Game.prototype.showStats = function() {
+    var hp = this.player.fighter.hp, maxHp = this.player.fighter.maxHp;
+    this.display.drawText(this.map.width, 0, "HP: " + hp + "/" + maxHp);
+};
+
 Game.prototype.draw = function() {
     this.breakMessage();
     this.display.clear();
@@ -379,6 +391,7 @@ Game.prototype.draw = function() {
             o.draw();
         }
     }
+    this.showStats();
     var line = this.map.height;
     for (var m of this.messages.slice(-5)) {
         this.display.drawText(0, line, m);
@@ -388,7 +401,7 @@ Game.prototype.draw = function() {
 
 Game.prototype.getEntitiesAt = function(x, y) {
     var results = [];
-    for (var o of this.components.object) {
+    for (var o of this.components.location) {
         if (o.x === x && o.y === y) {
             results.push(o.entity);
         }
@@ -449,9 +462,9 @@ Game.prototype.tellPlayer = function(msg, subject) {
 };
 
 Game.prototype.playerMoveOrFight = function(dx, dy) {
-    var newX = this.player.object.x + dx, newY = this.player.object.y + dy;
+    var newX = this.player.location.x + dx, newY = this.player.location.y + dy;
 
-    if (!this.player.object.move(newX, newY)) {
+    if (!this.player.location.move(newX, newY)) {
         var blockers = this.getEntitiesAt(newX, newY);
         if (blockers.length) {
             for (var blocker of blockers) {
@@ -529,14 +542,30 @@ Game.prototype.handleEvent = function(ev) {
     this.draw();
 
     if (acted) {
-        this.map.computeDistance(this.player.object.x, this.player.object.y);
+        this.map.computeDistance(this.player.location.x, this.player.location.y);
         this.engine.unlock();
     }
 };
 
-var Item = function(x, y, properties) {
+var Location = function(x, y) {
     this.x = x;
     this.y = y;
+};
+
+Location.prototype.moveRelative = function(dx, dy) {
+    var newX = this.x + dx, newY = this.y + dy;
+    return this.move(newX, newY);
+};
+
+Location.prototype.move = function(newX, newY) {
+    var map = this.entity.game.map;
+    if (map.blocked(newX, newY)) { return false; }
+    this.x = newX;
+    this.y = newY;
+    return true;
+};
+
+var Item = function(properties) {
     this.symbol = properties.symbol;
     this.fg = properties.fg || "white";
     this.bg = properties.bg || "black";
@@ -545,20 +574,10 @@ var Item = function(x, y, properties) {
 };
 
 Item.prototype.draw = function() {
-    this.entity.game.display.draw(this.x, this.y, this.symbol, this.fg, this.bg);
-};
-
-Item.prototype.moveRelative = function(dx, dy) {
-    var newX = this.x + dx, newY = this.y + dy;
-    return this.move(newX, newY);
-};
-
-Item.prototype.move = function(newX, newY) {
-    var map = this.entity.game.map;
-    if (map.blocked(newX, newY)) { return false; }
-    this.x = newX;
-    this.y = newY;
-    return true;
+    if (this.entity.location) {
+        var x = this.entity.location.x, y = this.entity.location.y;
+        this.entity.game.display.draw(x, y, this.symbol, this.fg, this.bg);
+    }
 };
 
 var BasicAI = function(moveSpeed) {
@@ -567,12 +586,12 @@ var BasicAI = function(moveSpeed) {
 
 BasicAI.prototype.moveToward = function() {
     var map = this.entity.game.map;
-    var object = this.entity.object;
+    var loc = this.entity.location;
 
-    var dist = map.get(object.x, object.y).distance;
-    var neighbors = [[object.x-1, object.y-1],[object.x,object.y-1],[object.x+1,object.y-1],
-                     [object.x-1, object.y],                        [object.x+1,object.y],
-                     [object.x-1, object.y+1],[object.x,object.y+1],[object.x+1,object.y+1]].randomize();
+    var dist = map.get(loc.x, loc.y).distance;
+    var neighbors = [[loc.x-1, loc.y-1],[loc.x,loc.y-1],[loc.x+1,loc.y-1],
+                     [loc.x-1, loc.y],                  [loc.x+1,loc.y],
+                     [loc.x-1, loc.y+1],[loc.x,loc.y+1],[loc.x+1,loc.y+1]].randomize();
     var move = false;
     for (var p of neighbors) {
         var t = map.get(p[0], p[1]);
@@ -587,15 +606,15 @@ BasicAI.prototype.moveToward = function() {
 
 BasicAI.prototype.act = function() {
     var map = this.entity.game.map;
-    var object = this.entity.object;
+    var loc = this.entity.location;
 
-    var dist = map.get(object.x, object.y).distance;
+    var dist = map.get(loc.x, loc.y).distance;
 
     if (dist > 1) {
         var move = this.moveToward();
 
         if (move) {
-            object.move(move[0], move[1]);
+            loc.move(move[0], move[1]);
             this.entity.game.scheduler.setDuration(this.moveSpeed);
         }
     } else {
