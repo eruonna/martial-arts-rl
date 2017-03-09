@@ -5,6 +5,7 @@ var MAX_MESSAGE_LENGTH = 75;
 var displayOptions = {
     width: 80,
     height: 35,
+    viewport: { width: 60, height: 30 },
     spacing: 1.001,
     forceSquareRatio: true,
 };
@@ -220,10 +221,15 @@ Map.prototype.get = function(x,y) {
     return r && r[y];
 };
 
-Map.prototype.draw = function() {
-    for (var x = 0; x < this.width; x++) {
-        for (var y = 0; y < this.height; y++) {
-            if (this.tiles[x][y].blocked) {
+Map.prototype.draw = function(cx, cy) {
+    var width = displayOptions.viewport.width,
+        height = displayOptions.viewport.height,
+        offx = cx - Math.floor(width / 2),
+        offy = cy - Math.floor(height / 2);
+    for (var x = 0; x < width; x++) {
+        for (var y = 0; y < height; y++) {
+            var t = this.get(x+offx,y+offy);
+            if (!t || t.blocked) {
                 this.game.display.draw(x,y," ","",light_wall_color);
             } else {
                 this.game.display.draw(x,y," ","",light_ground_color);
@@ -376,13 +382,23 @@ Game.prototype.removeEntity = function(e) {
 
 Game.prototype.showStats = function() {
     var hp = this.player.fighter.hp, maxHp = this.player.fighter.maxHp;
-    this.display.drawText(this.map.width, 0, "HP: " + hp + "/" + maxHp);
+    this.display.drawText(displayOptions.viewport.width, 0, "HP: " + hp + "/" + maxHp);
+};
+
+Game.prototype.drawChar = function(mx, my, sym, fg, bg) {
+    var cx = this.player.location.x,
+        cy = this.player.location.y,
+        width = displayOptions.viewport.width,
+        height = displayOptions.viewport.height,
+        offx = cx - Math.floor(width / 2),
+        offy = cy - Math.floor(height / 2);
+    this.display.draw(mx - offx, my - offy, sym, fg, bg);
 };
 
 Game.prototype.draw = function() {
     this.breakMessage();
     this.display.clear();
-    this.map.draw();
+    this.map.draw(this.player.location.x, this.player.location.y);
     for (var o of this.components.object) {
         o.draw();
     }
@@ -392,7 +408,7 @@ Game.prototype.draw = function() {
         }
     }
     this.showStats();
-    var line = this.map.height;
+    var line = displayOptions.viewport.height;
     for (var m of this.messages.slice(-5)) {
         this.display.drawText(0, line, m);
         line++;
@@ -576,7 +592,7 @@ var Item = function(properties) {
 Item.prototype.draw = function() {
     if (this.entity.location) {
         var x = this.entity.location.x, y = this.entity.location.y;
-        this.entity.game.display.draw(x, y, this.symbol, this.fg, this.bg);
+        this.entity.game.drawChar(x, y, this.symbol, this.fg, this.bg);
     }
 };
 
